@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ride-Hailing Patterns — Demo</title>
+  <style>
+    /* Simple aesthetic styling (Tailwind not used because single file) */
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#94a3b8;--accent:#22c55e}
+    body{font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,#071029 0%, #071a2b 100%);color:#e6eef8;margin:0;padding:24px}
+    .container{max-width:980px;margin:0 auto}
+    h1{font-size:1.6rem;margin:0 0 12px}
+    .grid{display:grid;grid-template-columns:1fr 360px;gap:18px}
+    .card{background:rgba(255,255,255,0.03);padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+    label{display:block;font-size:0.85rem;color:var(--muted);margin-bottom:6px}
+    input,select,button{width:100%;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+    .row{display:flex;gap:8px}
+    .small{font-size:0.85rem;color:var(--muted)}
+    .drivers{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+    .driver{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;background:rgba(255,255,255,0.02)}
+    .btn{cursor:pointer;border:none;padding:8px 10px;border-radius:8px}
+    .btn-accept{background:linear-gradient(90deg,#16a34a,#22c55e);color:#032;}
+    .btn-cancel{background:linear-gradient(90deg,#ef4444,#fb7185);color:#fff}
+    .notifications{max-height:220px;overflow:auto;margin-top:8px}
+    .note{padding:8px;border-radius:8px;background:rgba(255,255,255,0.02);margin-bottom:8px}
+    pre{white-space:pre-wrap;font-size:0.85rem}
+    footer{margin-top:12px;color:var(--muted);font-size:0.85rem}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Ride-Hailing App (Observer, Strategy, Command) — Demo</h1>
+    <div class="grid">
+      <div class="card">
+        <section>
+          <label>Pickup</label>
+          <input id="pickup" placeholder="e.g. MG Road" value="MG Road" />
+        </section>
+        <section style="margin-top:10px">
+          <label>Drop</label>
+          <input id="drop" placeholder="e.g. Airport" value="Airport" />
+        </section>
+        <section style="margin-top:10px">
+          <label>Fare Strategy</label>
+          <select id="strategy">
+            <option value="normal">Normal Fare</option>
+            <option value="surge">Surge Pricing (x1.5)</option>
+            <option value="discount">Discount (10% off)</option>
+          </select>
+        </section>
+        <section style="margin-top:10px">
+          <label>Distance (km)</label>
+          <input id="distance" type="number" value="12" />
+        </section>
+        <div style="margin-top:12px" class="row">
+          <button id="bookBtn" class="btn btn-accept">Book Ride</button>
+          <button id="cancelBtn" class="btn btn-cancel">Cancel Ride</button>
+        </div>
+
+        <section style="margin-top:14px">
+          <label>System Log / Rider Notifications</label>
+          <div id="notifications" class="notifications"></div>
+        </section>
+
+        <section style="margin-top:12px">
+          <label>Commands History</label>
+          <pre id="cmdHistory">(none)</pre>
+        </section>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Active Drivers (Simulate accept/cancel)</h3>
+        <div class="drivers" id="driversList"></div>
+        <footer>Design note: Observer pattern notifies rider UI when drivers act. Strategy pattern computes fare. Command pattern encapsulates ride operations.</footer>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /************************************************************
+     * Observer Pattern
+     * - Subject: RideRequest (notifies observers: rider UI)
+     * - Observers implement update(event, payload)
+     ************************************************************/
+
+    class Subject {
+      constructor(){ this.observers = new Set(); }
+      subscribe(obs){ this.observers.add(obs); }
+      unsubscribe(obs){ this.observers.delete(obs); }
+      notify(event, payload){ for(const o of this.observers) o.update(event,payload); }
+    }
+
+    // Rider UI acts as an observer
+    class RiderUI {
+      constructor(container){ this.container = container; }
+      update(event, payload){
+        const node = document.createElement('div'); node.className='note';
+        const when = new Date().toLocaleTimeString();
+        if(event === 'driver-accepted'){
+          node.innerHTML = <strong>${payload.driverName}</strong> accepted your ride — ETA ${payload.eta} mins. <div class='small'>fare: ₹${payload.fare.toFixed(2)}</div><div class='small'>${when}</div>;
+        } else if(event === 'driver-cancelled'){
+          node.innerHTML = <strong>${payload.driverName}</strong> canceled the ride. ${when};
+        } else if(event === 'ride-booked'){
+          node.innerHTML = <strong>Ride booked</strong> with id <em>${payload.id}</em>. ${when};
+        } else if(event === 'ride-cancelled'){
+          node.innerHTML = <strong>Ride cancelled</strong> (id ${payload.id}). ${when};
+        } else {
+          node.textContent = ${event} — ${JSON.stringify(payload)};
+        }
+        this.container.prepend(node);
+      }
+    }
+
+    /************************************************************
+     * Strategy Pattern for fare calculation
+     ************************************************************/
+    class FareStrategy {
+      calculate(baseFare, distance){ throw new Error('Implement'); }
+    }
+    class NormalFare extends FareStrategy {
+      calculate(baseFare, distance){ return baseFare + distance * 10; }
+    }
+    class SurgeFare extends FareStrategy {
+      constructor(mult) { super(); this.mult = mult; }
+      calculate(baseFare, distance){ return (baseFare + distance * 10) * this.mult; }
+    }
+    class DiscountFare extends FareStrategy {
+      constructor(pct) { super(); this.pct = pct; }
+      calculate(baseFare, distance){ return (baseFare + distance * 10) * (1 - this.pct); }
+    }
+
+    /************************************************************
+     * Command Pattern
+     * - Commands: BookRideCommand, CancelRideCommand, RateRideCommand
+     * - Invoker: RideService executes and logs commands
+     ************************************************************/
+    class Command { execute(){ } }
+    class BookRideCommand extends Command {
+      constructor(rideService, request){ super(); this.rs = rideService; this.request = request; }
+      execute(){ return this.rs._book(this.request); }
+      toString(){ return BookRide(id=${this.request.id}); }
+    }
+    class CancelRideCommand extends Command {
+      constructor(rideService, rideId){ super(); this.rs = rideService; this.rideId = rideId; }
+      execute(){ return this.rs._cancel(this.rideId); }
+      toString(){ return CancelRide(id=${this.rideId}); }
+    }
+    class RateRideCommand extends Command {
+      constructor(rideService, rideId, rating){ super(); this.rs = rideService; this.rideId = rideId; this.rating = rating; }
+      execute(){ return this.rs._rate(this.rideId, this.rating); }
+      toString(){ return RateRide(id=${this.rideId}, rating=${this.rating}); }
+    }
+
+    class RideService {
+      constructor(){ this.rides = new Map(); this.cmdHistory = []; }
+      executeCommand(cmd){ const res = cmd.execute(); this.cmdHistory.unshift(cmd.toString()); this._updateHistoryUI(); return res; }
+      _updateHistoryUI(){ document.getElementById('cmdHistory').textContent = this.cmdHistory.slice(0,10).join('\n') || '(none)'; }
+
+      // internal implementations the Commands call
+      _book(request){ this.rides.set(request.id, {...request, status:'BOOKED'}); // notify
+        rideRequestSubject.notify('ride-booked', {id: request.id});
+        return request.id;
+      }
+      _cancel(rideId){ const r = this.rides.get(rideId); if(!r) return false; r.status='CANCELLED'; rideRequestSubject.notify('ride-cancelled', {id: rideId}); return true; }
+      _rate(rideId, rating){ const r = this.rides.get(rideId); if(!r) return false; r.rating = rating; return true; }
+    }
+
+    /************************************************************
+     * Driver model (simulated) — drivers will accept or cancel rides
+     ************************************************************/
+    class Driver {
+      constructor(id,name){ this.id=id; this.name=name; }
+      acceptRide(rideId, fare){
+        // simulate ETA
+        const eta = Math.round(Math.random()*8)+2;
+        rideRequestSubject.notify('driver-accepted',{driverId:this.id,driverName:this.name,rideId,fare,eta});
+      }
+      cancelRide(rideId){
+        rideRequestSubject.notify('driver-cancelled',{driverId:this.id,driverName:this.name,rideId});
+      }
+    }
+
+    /************************************************************
+     * Wire everything together
+     ************************************************************/
+    const rideRequestSubject = new Subject();
+    const riderNotifications = new RiderUI(document.getElementById('notifications'));
+    rideRequestSubject.subscribe(riderNotifications);
+
+    const rideService = new RideService();
+
+    // simple driver pool
+    const drivers = [new Driver(1,'Arjun'), new Driver(2,'Sneha'), new Driver(3,'Rahul')];
+
+    // Display drivers and connect accept/cancel buttons
+    function renderDrivers(){
+      const list = document.getElementById('driversList'); list.innerHTML='';
+      drivers.forEach(d=>{
+        const el = document.createElement('div'); el.className='driver';
+        el.innerHTML = <div><strong>${d.name}</strong><div class='small'>Driver ID: ${d.id}</div></div>;
+        const btns = document.createElement('div'); btns.style.display='flex'; btns.style.gap='8px';
+        const accept = document.createElement('button'); accept.className='btn btn-accept'; accept.textContent='Accept';
+        const cancel = document.createElement('button'); cancel.className='btn btn-cancel'; cancel.textContent='Cancel';
+        accept.onclick = ()=> simulateDriverAccept(d);
+        cancel.onclick = ()=> simulateDriverCancel(d);
+        btns.appendChild(accept); btns.appendChild(cancel);
+        el.appendChild(btns);
+        list.appendChild(el);
+      });
+    }
+
+    renderDrivers();
+
+    // Helpers for strategy selection
+    function getSelectedStrategy(){
+      const s = document.getElementById('strategy').value;
+      const baseFare = 50;
+      if(s==='normal') return new NormalFare();
+      if(s==='surge') return new SurgeFare(1.5);
+      if(s==='discount') return new DiscountFare(0.10);
+      return new NormalFare();
+    }
+
+    // Handler when user books
+    document.getElementById('bookBtn').onclick = ()=>{
+      const pickup = document.getElementById('pickup').value;
+      const drop = document.getElementById('drop').value;
+      const distance = Number(document.getElementById('distance').value) || 0;
+      const strategy = getSelectedStrategy();
+      const baseFare = 50;
+      const fare = strategy.calculate(baseFare, distance);
+      const id = 'R' + Math.random().toString(36).slice(2,8).toUpperCase();
+      const request = { id, pickup, drop, distance, fare };
+      // Use Command to book
+      const cmd = new BookRideCommand(rideService, request);
+      rideService.executeCommand(cmd);
+
+      // Optionally auto-assign a driver after a short delay to demo accept
+      setTimeout(()=>{
+        // pick a random driver to auto-notify as 'available' (BUT driver still needs to accept via UI)
+        rideRequestSubject.notify('info',{message:'Drivers notified — waiting for accept/cancel (use driver buttons to simulate)'});
+      },300);
+    };
+
+    // Cancel button uses command pattern
+    document.getElementById('cancelBtn').onclick = ()=>{
+      // naive: cancel most recent ride
+      const recent = rideService.cmdHistory.find(h=>h.startsWith('BookRide('));
+      if(!recent){ alert('No booked rides in history to cancel'); return; }
+      // extract id using regex
+      const m = recent.match(/id=(R[0-9A-Z]+)/);
+      const rideId = m ? m[1] : null;
+      if(!rideId){ alert('Could not find ride id'); return; }
+      const cmd = new CancelRideCommand(rideService, rideId);
+      rideService.executeCommand(cmd);
+    };
+
+    // Simulate driver actions
+    function simulateDriverAccept(driver){
+      // find the latest booked ride
+      const bookedEntry = Array.from(rideService.rides.values()).reverse().find(r=>r.status==='BOOKED');
+      if(!bookedEntry){ alert('No booked ride to accept — please book first'); return; }
+      const fare = bookedEntry.fare;
+      // driver accepts
+      driver.acceptRide(bookedEntry.id,fare);
+    }
+    function simulateDriverCancel(driver){
+      const bookedEntry = Array.from(rideService.rides.values()).reverse().find(r=>r.status==='BOOKED');
+      if(!bookedEntry){ alert('No booked ride to cancel'); return; }
+      driver.cancelRide(bookedEntry.id);
+    }
+
+    // Hook the RiderUI also to info events so we can show generic messages
+    rideRequestSubject.subscribe({ update: (e,p)=>{
+      if(e==='info') riderNotifications.update('info',p);
+      if(e==='driver-accepted' || e==='driver-cancelled'){
+        // when driver accepts, we may also mark the ride as assigned
+        if(e==='driver-accepted'){
+          const ride = rideService.rides.get(p.rideId);
+          if(ride) ride.assignedDriver = p.driverId;
+        }
+      }
+    }});
+
+    // Small UX: log events to console for debugging
+    rideRequestSubject.subscribe({ update:(e,p)=> console.log('[notify]',e,p) });
+
+  </script>
+</body>
+</html>
