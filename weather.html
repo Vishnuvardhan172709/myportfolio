@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Indian Capitals Live Weather</title>
+  <style>
+    body {
+      font-family: "Poppins", sans-serif;
+      background: linear-gradient(135deg, #bbdefb, #e3f2fd);
+      text-align: center;
+      padding: 40px 20px;
+      color: #0d47a1;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 15px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      display: inline-block;
+      padding: 20px 30px;
+      min-width: 320px;
+    }
+
+    select, button {
+      margin: 10px;
+      padding: 10px 15px;
+      border-radius: 8px;
+      border: 1px solid #64b5f6;
+      font-size: 1em;
+      outline: none;
+    }
+
+    button {
+      background-color: #0d47a1;
+      color: white;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    button:hover {
+      background-color: #1565c0;
+    }
+
+    #weather {
+      margin-top: 20px;
+      font-size: 1.2em;
+      line-height: 1.6;
+    }
+
+    footer {
+      margin-top: 40px;
+      font-size: 0.9em;
+      color: #555;
+    }
+
+    .toggle-container {
+      margin-top: 15px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 60px;
+      height: 30px;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      border-radius: 34px;
+      transition: 0.4s;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 22px;
+      width: 22px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      border-radius: 50%;
+      transition: 0.4s;
+    }
+
+    input:checked + .slider {
+      background-color: #0d47a1;
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(30px);
+    }
+  </style>
+</head>
+<body>
+  <h1>🌦 Indian Capitals Live Weather</h1>
+
+  <div class="card">
+    <h3>Select City</h3>
+    <select id="cityDropdown">
+      <option value="" disabled selected>Select a city</option>
+      <option>New Delhi</option>
+      <option>Mumbai</option>
+      <option>Chennai</option>
+      <option>Kolkata</option>
+      <option>Bengaluru</option>
+      <option>Hyderabad</option>
+      <option>Jaipur</option>
+      <option>Lucknow</option>
+      <option>Bhopal</option>
+      <option>Patna</option>
+      <option>Raipur</option>
+      <option>Guwahati</option>
+      <option>Bhubaneswar</option>
+      <option>Thiruvananthapuram</option>
+      <option>Ranchi</option>
+      <option>Dehradun</option>
+      <option>Chandigarh</option>
+      <option>Gangtok</option>
+      <option>Imphal</option>
+      <option>Shillong</option>
+      <option>Aizawl</option>
+      <option>Kohima</option>
+      <option>Agartala</option>
+      <option>Panaji</option>
+      <option>Itanagar</option>
+      <option>Port Blair</option>
+      <option>Leh</option>
+    </select>
+
+    <br>
+    <button onclick="getWeather()">Get Weather</button>
+    <button onclick="refreshWeather()">Refresh</button>
+
+    <div class="toggle-container">
+      <span>°C</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="unitToggle" onchange="toggleUnit()">
+        <span class="slider"></span>
+      </label>
+      <span>°F</span>
+    </div>
+
+    <div id="weather"></div>
+  </div>
+
+  <footer>Powered by Open-Meteo (Free API, No Key Required)</footer>
+
+  <script>
+    const weatherDescriptions = {
+      0: "☀️ Clear sky", 1: "🌤 Mainly clear", 2: "⛅ Partly cloudy", 3: "☁️ Overcast",
+      45: "🌫 Fog", 48: "🌫 Dense fog",
+      51: "🌦 Light drizzle", 53: "🌧 Drizzle", 55: "🌧 Heavy drizzle",
+      61: "🌦 Light rain", 63: "🌧 Moderate rain", 65: "🌧 Heavy rain",
+      71: "❄️ Light snow", 73: "❄️ Moderate snow", 75: "❄️ Heavy snow",
+      95: "⛈ Thunderstorm", 96: "🌩 Thunderstorm + hail", 99: "🌩 Severe storm"
+    };
+
+    let lastCity = null;
+    let currentTempC = null;
+    let currentWeatherDesc = null;
+
+    async function geocode(city) {
+      const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&country=IN`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!data.results) throw new Error("City not found");
+      return { lat: data.results[0].latitude, lon: data.results[0].longitude, name: data.results[0].name };
+    }
+
+    async function getWeather() {
+      const city = document.getElementById("cityDropdown").value;
+      if (!city) return alert("Please select a city!");
+
+      lastCity = city;
+      const weatherDiv = document.getElementById("weather");
+      weatherDiv.innerHTML = "<p>Fetching live weather...</p>";
+
+      try {
+        const { lat, lon, name } = await geocode(city);
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weathercode`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        currentTempC = data.current.temperature_2m;
+        const code = data.current.weathercode;
+        currentWeatherDesc = weatherDescriptions[code] || "🌈 Weather unavailable";
+
+        displayWeather(name);
+      } catch (err) {
+        weatherDiv.innerHTML = `<p style="color:red;">Error fetching weather: ${err.message}</p>`;
+      }
+    }
+
+    function displayWeather(cityName) {
+      const isFahrenheit = document.getElementById("unitToggle").checked;
+      const weatherDiv = document.getElementById("weather");
+
+      const temp = isFahrenheit
+        ? (currentTempC * 9/5 + 32).toFixed(1) + " °F"
+        : currentTempC + " °C";
+
+      weatherDiv.innerHTML = `
+        <h3>${cityName}</h3>
+        <p><strong>Temperature:</strong> ${temp}</p>
+        <p><strong>Condition:</strong> ${currentWeatherDesc}</p>
+      `;
+    }
+
+    function toggleUnit() {
+      if (currentTempC !== null && lastCity) {
+        displayWeather(lastCity);
+      }
+    }
+
+    function refreshWeather() {
+      if (lastCity) {
+        getWeather();
+      } else {
+        alert("Select a city first!");
+      }
+    }
+  </script>
+</body>
+</html>
